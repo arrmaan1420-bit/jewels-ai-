@@ -1,0 +1,2 @@
+[functions.generate-model-image]
+verify_jwt = true
