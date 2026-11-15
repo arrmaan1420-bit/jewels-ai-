@@ -8,6 +8,7 @@ import {
   FolderPlus,
   History,
   Image as ImageIcon,
+  KeyRound,
   Loader2,
   Package,
   Plus,
@@ -18,6 +19,7 @@ import {
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { GoogleAiKeyModal } from '@/components/GoogleAiKeyModal';
 import { Modal } from '@/components/Modal';
 import { PageHeader } from '@/components/PageHeader';
 import { ProductThumb } from '@/components/products/ProductThumb';
@@ -31,6 +33,7 @@ import {
   updateAdCaption,
 } from '@/lib/adGenerator';
 import { fetchCampaigns } from '@/lib/campaigns';
+import { hasGoogleAiKey } from '@/lib/googleAi';
 import { fetchProducts } from '@/lib/products';
 import type { AdGenerationFormValues, AiAdCreative } from '@/types/ai';
 import type { Campaign } from '@/types/marketing';
@@ -102,6 +105,7 @@ export function AiAdGeneratorPage() {
   const [savingCampaign, setSavingCampaign] = useState(false);
   const [deletingAd, setDeletingAd] = useState<AiAdCreative | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [keyModalOpen, setKeyModalOpen] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -161,7 +165,11 @@ export function AiAdGeneratorPage() {
       setHashtagsText(res.hashtags);
       notify('Advertisement creative generated with caption!');
       fetchAiAds().then(setAds);
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.message?.includes('GOOGLE_AI_KEY_REQUIRED') || err?.code === 'GOOGLE_AI_KEY_REQUIRED') {
+        setKeyModalOpen(true);
+        return;
+      }
       notify(err instanceof Error ? err.message : 'Ad generation failed.', 'error');
     } finally {
       setGenerating(false);
@@ -239,9 +247,19 @@ export function AiAdGeneratorPage() {
         title="AI Ad Generator"
         description="Transform jewellery photographs into high-converting luxury advertisements with bespoke marketing copy."
         action={
-          <Link to="/products?new=1" className="btn-secondary">
-            <Plus className="h-4 w-4" /> Upload piece
-          </Link>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setKeyModalOpen(true)}
+              className="btn-secondary text-xs inline-flex items-center gap-1.5"
+            >
+              <KeyRound className="h-3.5 w-3.5 text-champagne" />
+              {hasGoogleAiKey() ? 'Google AI Connected' : 'Connect Google AI'}
+            </button>
+            <Link to="/products?new=1" className="btn-secondary">
+              <Plus className="h-4 w-4" /> Upload piece
+            </Link>
+          </div>
         }
       />
 
@@ -627,6 +645,13 @@ export function AiAdGeneratorPage() {
           </div>
         )}
       </section>
+
+      {/* Google AI Key Connection Modal */}
+      <GoogleAiKeyModal
+        open={keyModalOpen}
+        onClose={() => setKeyModalOpen(false)}
+        onSaved={handleGenerate}
+      />
 
       {/* Save to Campaign Modal */}
       <Modal open={saveCampaignOpen} onClose={() => setSaveCampaignOpen(false)} title="Save to Campaign">

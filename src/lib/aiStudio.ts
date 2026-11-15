@@ -1,7 +1,39 @@
+import { generateImagenImage, getGoogleAiKey } from '@/lib/googleAi';
 import { supabase } from '@/lib/supabase';
 import type { AiModelGeneration, ModelGenerationFormValues } from '@/types/ai';
 
 const PRODUCT_IMAGE_BUCKET = 'product-images';
+
+const STYLES: Record<string, string> = {
+  luxuryFashion: 'high-end luxury fashion editorial styling, refined, elegant and contemporary',
+  indianBridal: 'Indian royal bridal styling with traditional bridal makeup and rich wedding-season jewellery glamour',
+  minimalistChic: 'clean minimalist aesthetic, quiet luxury, crisp soft lighting',
+  vintageHeritage: 'timeless vintage heirloom aesthetic, opulent royal palace atmosphere',
+};
+
+const BACKGROUNDS: Record<string, string> = {
+  'black-studio': 'a deep onyx black luxury studio backdrop with soft atmospheric falloff',
+  'emerald-studio': 'a rich deep emerald green studio backdrop with a subtle champagne gradient',
+  'champagne-silk': 'luxurious draped champagne silk backdrop with soft golden highlights',
+  'royal-palace': 'an ornate royal palace interior with marble columns and warm gold accents',
+  'ivory-studio': 'a warm silk ivory studio backdrop with gentle shadows',
+};
+
+const CAMERAS: Record<string, string> = {
+  'eye-level': 'eye-level portrait shot on an 85mm f/1.4 prime lens',
+  'low-angle': 'low-angle hero shot on a 50mm lens showcasing the piece',
+  'close-up': 'tight close-up macro portrait on a 100mm macro lens focusing on jewellery craftsmanship',
+  'overhead': 'overhead three-quarter angle with dramatic studio lighting',
+  'full-body': 'full-body editorial fashion pose on a 35mm lens',
+};
+
+const POSES: Record<string, string> = {
+  'standing-three-quarter': 'standing in an poised three-quarter pose',
+  'seated-elegant': 'seated in a regal, relaxed editorial pose',
+  'hand-to-face': 'with one hand gracefully near the face highlighting the ring or bracelet',
+  'looking-over-shoulder': 'looking back over the shoulder with captivating gaze',
+  'profile-chin-up': 'in an elegant profile view with the chin gently lifted',
+};
 
 export function getGeneratedImageUrl(imagePath: string): string {
   if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
@@ -35,6 +67,91 @@ export async function fetchAiModelGenerations(): Promise<AiModelGeneration[]> {
   }));
 }
 
+async function generateModelWithClientEngine(
+  productId: string,
+  options: ModelGenerationFormValues
+): Promise<{
+  id?: string;
+  imageUrl: string;
+  imagePath: string;
+  prompt: string;
+  createdAt: string;
+}> {
+  const apiKey = getGoogleAiKey();
+  if (!apiKey) {
+    const err = new Error('GOOGLE_AI_KEY_REQUIRED');
+    (err as any).code = 'GOOGLE_AI_KEY_REQUIRED';
+    throw err;
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    throw new Error('Please sign in to generate model photographs.');
+  }
+
+  const { data: product, error: prodErr } = await supabase
+    .from('products')
+    .select('id, name, category, description, material, gemstone, image_path')
+    .eq('id', productId)
+    .maybeSingle();
+
+  if (prodErr || !product) {
+    throw new Error('The selected jewellery product could not be found.');
+  }
+
+  const genderWord = options.gender === 'female' ? 'female' : 'male';
+  const prompt = [
+    `A high-end luxury advertisement photograph of an elegant ${genderWord} model wearing authentic fine jewellery.`,
+    `Product: "${product.name}", category ${product.category}. Crafted in ${product.material || 'fine metal'} with ${product.gemstone || 'gemstones'}.`,
+    `JEWELLERY HIGHLIGHT: Centerpiece hero shot of the exact piece worn naturally on the ${options.gender === 'female' ? 'woman' : 'man'}. Maintain gemstone brilliance, diamond facets, and metal craftsmanship.`,
+    `Model styling: ${STYLES[options.style] || 'Luxury fashion'}. Hair: ${options.hairstyle}. Outfit: ${options.outfit}.`,
+    `Pose & Camera: ${POSES[options.pose] || 'poised pose'}, captured with ${CAMERAS[options.camera] || '85mm lens'}.`,
+    `Atmosphere & Studio: ${BACKGROUNDS[options.background] || 'Studio'}, illuminated with warm studio strobe lighting.`,
+    options.customPrompt ? `Additional creative direction: ${options.customPrompt}.` : '',
+    'Vogue / Harper’s Bazaar editorial photography, ultra-detailed 8K resolution, realistic skin texture, diamond sparkle, no watermark, no text.',
+  ].filter(Boolean).join('\n');
+
+  const imgResult = await generateImagenImage(apiKey, prompt, options.aspectRatio);
+
+  const imagePath = `${user.id}/generated/${crypto.randomUUID()}.jpg`;
+  const { error: uploadError } = await supabase.storage
+    .from(PRODUCT_IMAGE_BUCKET)
+    .upload(imagePath, imgResult.blob, { contentType: imgResult.mimeType, cacheControl: '3600' });
+
+  if (uploadError) {
+    console.error('Storage upload failed:', uploadError.message);
+    throw new Error('The model photograph was created but could not be saved to storage.');
+  }
+
+  const { data: row, error: insertError } = await supabase
+    .from('ai_models')
+    .insert({
+      user_id: user.id,
+      product_id: product.id,
+      image_path: imagePath,
+      prompt,
+      settings: options,
+    })
+    .select('id, created_at')
+    .maybeSingle();
+
+  if (insertError) {
+    console.warn('ai_models insert warning:', insertError.message);
+  }
+
+  const { data: publicUrl } = supabase.storage.from(PRODUCT_IMAGE_BUCKET).getPublicUrl(imagePath);
+
+  return {
+    id: row?.id,
+    imageUrl: publicUrl.publicUrl,
+    imagePath,
+    prompt,
+    createdAt: row?.created_at || new Date().toISOString(),
+  };
+}
+
 export async function generateModelImage(
   productId: string,
   options: ModelGenerationFormValues
@@ -45,24 +162,21 @@ export async function generateModelImage(
   prompt: string;
   createdAt: string;
 }> {
-  const { data, error } = await supabase.functions.invoke('generate-model-image', {
-    body: { productId, options },
-  });
+  // Try Edge Function first
+  try {
+    const { data, error } = await supabase.functions.invoke('generate-model-image', {
+      body: { productId, options },
+    });
 
-  if (error) {
-    let msg = error.message;
-    try {
-      const errBody = await error.context?.json?.();
-      if (errBody?.error) msg = errBody.error;
-    } catch {}
-    throw new Error(msg || 'Model image generation failed.');
+    if (!error && !data?.error && data?.imageUrl) {
+      return data;
+    }
+  } catch (edgeErr) {
+    console.warn('Edge Function invoke error, falling back to direct Google AI engine:', edgeErr);
   }
 
-  if (data?.error) {
-    throw new Error(data.error);
-  }
-
-  return data;
+  // Fallback to direct client Google AI engine
+  return await generateModelWithClientEngine(productId, options);
 }
 
 export async function deleteAiModelGeneration(id: string, imagePath: string): Promise<void> {

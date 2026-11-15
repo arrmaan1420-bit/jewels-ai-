@@ -6,6 +6,7 @@ import {
   Download,
   FolderPlus,
   History,
+  KeyRound,
   Loader2,
   Package,
   Plus,
@@ -17,6 +18,7 @@ import {
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { GoogleAiKeyModal } from '@/components/GoogleAiKeyModal';
 import { Modal } from '@/components/Modal';
 import { PageHeader } from '@/components/PageHeader';
 import { ProductThumb } from '@/components/products/ProductThumb';
@@ -29,6 +31,7 @@ import {
   linkGenerationToCampaign,
 } from '@/lib/aiStudio';
 import { fetchCampaigns } from '@/lib/campaigns';
+import { hasGoogleAiKey } from '@/lib/googleAi';
 import { fetchProducts } from '@/lib/products';
 import type { AiModelGeneration, ModelGenerationFormValues } from '@/types/ai';
 import type { Campaign } from '@/types/marketing';
@@ -120,6 +123,7 @@ export function AiModelStudioPage() {
   const [savingCampaign, setSavingCampaign] = useState(false);
   const [deletingGen, setDeletingGen] = useState<AiModelGeneration | null>(null);
   const [deletingLoading, setDeletingLoading] = useState(false);
+  const [keyModalOpen, setKeyModalOpen] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -188,9 +192,12 @@ export function AiModelStudioPage() {
         prompt: result.prompt,
       });
       notify('Model photograph generated successfully!');
-      // Reload history
       fetchAiModelGenerations().then(setHistory);
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.message?.includes('GOOGLE_AI_KEY_REQUIRED') || err?.code === 'GOOGLE_AI_KEY_REQUIRED') {
+        setKeyModalOpen(true);
+        return;
+      }
       notify(err instanceof Error ? err.message : 'Generation failed.', 'error');
     } finally {
       setGenerating(false);
@@ -253,9 +260,19 @@ export function AiModelStudioPage() {
         title="AI Model Studio"
         description="Craft editorial fashion photographs featuring models wearing your jewellery."
         action={
-          <Link to="/products?new=1" className="btn-secondary">
-            <Plus className="h-4 w-4" /> Upload piece
-          </Link>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setKeyModalOpen(true)}
+              className="btn-secondary text-xs inline-flex items-center gap-1.5"
+            >
+              <KeyRound className="h-3.5 w-3.5 text-champagne" />
+              {hasGoogleAiKey() ? 'Google AI Connected' : 'Connect Google AI'}
+            </button>
+            <Link to="/products?new=1" className="btn-secondary">
+              <Plus className="h-4 w-4" /> Upload piece
+            </Link>
+          </div>
         }
       />
 
@@ -675,6 +692,13 @@ export function AiModelStudioPage() {
           </div>
         )}
       </section>
+
+      {/* Google AI Key Connection Modal */}
+      <GoogleAiKeyModal
+        open={keyModalOpen}
+        onClose={() => setKeyModalOpen(false)}
+        onSaved={handleGenerate}
+      />
 
       {/* Save to Campaign Modal */}
       <Modal open={saveCampaignOpen} onClose={() => setSaveCampaignOpen(false)} title="Save to Campaign">

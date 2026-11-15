@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Loader2 } from 'lucide-react';
+import { ExternalLink, KeyRound, Loader2, Lock } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import { getAuthErrorMessage } from '@/lib/authErrors';
+import { getGoogleAiKey, setGoogleAiKey } from '@/lib/googleAi';
 import { supabase } from '@/lib/supabase';
 
 interface ProfileForm {
@@ -23,6 +24,9 @@ export function SettingsPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [savingPassword, setSavingPassword] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+
+  const [googleKey, setGoogleKey] = useState(getGoogleAiKey());
+  const [savingGoogleKey, setSavingGoogleKey] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -86,11 +90,20 @@ export function SettingsPage() {
     }
   };
 
+  const handleGoogleKeySave = (e: FormEvent) => {
+    e.preventDefault();
+    setSavingGoogleKey(true);
+    setGoogleAiKey(googleKey.trim());
+    setSavingGoogleKey(false);
+    notify('Google AI Studio API key updated successfully.');
+  };
+
   return (
     <div className="space-y-10">
-      <PageHeader eyebrow="Account" title="Settings" description="Manage your personal profile and sign-in security." />
+      <PageHeader eyebrow="Account" title="Settings" description="Manage your personal profile, Google AI integration, and sign-in security." />
 
       <div className="grid gap-6 xl:grid-cols-2">
+        {/* Profile Card */}
         <section className="glass p-6 sm:p-8">
           <h2 className="font-serif text-2xl">Profile</h2>
           <p className="mt-1 text-sm text-slate-400">How your name and boutique appear across JEWELS AI.</p>
@@ -134,11 +147,56 @@ export function SettingsPage() {
           )}
         </section>
 
+        {/* Google AI Studio API Key Card */}
         <section className="glass p-6 sm:p-8">
+          <div className="flex items-center justify-between">
+            <h2 className="font-serif text-2xl">Google AI Studio</h2>
+            <KeyRound className="h-5 w-5 text-champagne" />
+          </div>
+          <p className="mt-1 text-sm text-slate-400">
+            Powers the AI Ad Generator, Imagen 3, and luxury copywriting.
+          </p>
+
+          <form onSubmit={handleGoogleKeySave} className="mt-8 space-y-5">
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <label htmlFor="apiKey" className="label-text mb-0">API Key</label>
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-champagne hover:underline"
+                >
+                  Get key from Google AI Studio <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
+              <input
+                id="apiKey"
+                type="password"
+                className="input-base font-mono text-xs"
+                value={googleKey}
+                onChange={(e) => setGoogleKey(e.target.value)}
+                placeholder="AIzaSy..."
+              />
+              <p className="mt-1.5 flex items-center gap-1 text-xs text-slate-500">
+                <Lock className="h-3 w-3 text-emerald-400" />
+                Stored securely on your private device.
+              </p>
+            </div>
+
+            <button type="submit" disabled={savingGoogleKey} className="btn-secondary">
+              {savingGoogleKey && <Loader2 className="h-4 w-4 animate-spin" />}
+              Save Google AI Key
+            </button>
+          </form>
+        </section>
+
+        {/* Password Card */}
+        <section className="glass p-6 sm:p-8 xl:col-span-2">
           <h2 className="font-serif text-2xl">Password</h2>
           <p className="mt-1 text-sm text-slate-400">Choose a new password for your account.</p>
 
-          <form onSubmit={handlePasswordSave} className="mt-8 space-y-5">
+          <form onSubmit={handlePasswordSave} className="mt-8 space-y-5 max-w-xl">
             <div>
               <label htmlFor="newPassword" className="label-text">New password</label>
               <input
