@@ -1,9 +1,10 @@
-import { useState, type FormEvent } from 'react';
-import { Loader2, MailCheck } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { useEffect, useState, type FormEvent } from 'react';
+import { AlertCircle, CheckCircle2, Loader2, MailCheck } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AuthLayout } from '@/components/auth/AuthLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { getAuthErrorMessage } from '@/lib/authErrors';
+import { supabase } from '@/lib/supabase';
 
 export function ForgotPasswordPage() {
   const { sendPasswordReset } = useAuth();
@@ -38,11 +39,21 @@ export function ForgotPasswordPage() {
     >
       {sent ? (
         <div className="glass flex flex-col items-center p-8 text-center">
-          <MailCheck className="mb-4 h-10 w-10 text-emerald-400" strokeWidth={1.5} />
-          <h2 className="font-serif text-2xl">Check your inbox</h2>
-          <p className="mt-2 text-sm text-slate-400">
-            If an account exists for {email}, a reset link is on its way.
+          <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-champagne/30 bg-emerald-deep/60">
+            <MailCheck className="h-7 w-7 text-champagne" strokeWidth={1.5} />
+          </span>
+          <h2 className="font-serif text-2xl text-white">Check your inbox</h2>
+          <p className="mt-3 text-sm text-slate-300">
+            If an account exists for <span className="font-medium text-champagne">{email}</span>, a secure password reset link has been dispatched.
           </p>
+          <p className="mt-2 text-xs text-slate-400">
+            Please check your spam or junk folder if the email does not arrive within a few minutes.
+          </p>
+          <div className="mt-6 w-full">
+            <Link to="/sign-in" className="btn-secondary block w-full text-center">
+              Return to sign in
+            </Link>
+          </div>
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-5">
@@ -61,9 +72,9 @@ export function ForgotPasswordPage() {
           </div>
 
           {error && (
-            <p role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            <div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
               {error}
-            </p>
+            </div>
           )}
 
           <button type="submit" disabled={submitting} className="btn-primary w-full">
@@ -77,12 +88,78 @@ export function ForgotPasswordPage() {
 }
 
 export function ResetPasswordPage() {
-  const { updatePassword } = useAuth();
+  const { updatePassword, user, loading: authLoading } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checkingLink, setCheckingLink] = useState(true);
+  const [linkError, setLinkError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function checkRecoveryParams() {
+      // 1. Check for URL error parameters in query string or hash
+      const searchParams = new URLSearchParams(location.search);
+      const hashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
+
+      const urlError =
+        searchParams.get('error_description') ||
+        hashParams.get('error_description') ||
+        searchParams.get('error') ||
+        hashParams.get('error');
+
+      const errorCode = searchParams.get('error_code') || hashParams.get('error_code');
+
+      if (urlError || errorCode) {
+        if (!cancelled) {
+          setLinkError(
+            errorCode === 'otp_expired'
+              ? 'This password reset link has expired or has already been used. Please request a new one.'
+              : urlError || 'Invalid or expired password reset link.'
+          );
+          setCheckingLink(false);
+        }
+        return;
+      }
+
+      // 2. Check for PKCE auth code
+      const code = searchParams.get('code');
+      if (code) {
+        try {
+          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+          if (exchangeError) {
+            if (!cancelled) {
+              setLinkError(exchangeError.message);
+              setCheckingLink(false);
+            }
+            return;
+          }
+        } catch (err) {
+          if (!cancelled) {
+            setLinkError(getAuthErrorMessage(err));
+            setCheckingLink(false);
+          }
+          return;
+        }
+      }
+
+      if (!cancelled) {
+        setCheckingLink(false);
+      }
+    }
+
+    checkRecoveryParams();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [location]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -90,6 +167,11 @@ export function ResetPasswordPage() {
 
     if (password !== confirmPassword) {
       setError('Passwords do not match.');
+      return;
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters.');
       return;
     }
 
@@ -104,10 +186,66 @@ export function ResetPasswordPage() {
     }
   };
 
+  if (checkingLink || authLoading) {
+    return (
+      <AuthLayout title="Verifying link" subtitle="Validating your password recovery session...">
+        <div className="flex justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-emerald-400" />
+        </div>
+      </AuthLayout>
+    );
+  }
+
+  if (linkError) {
+    return (
+      <AuthLayout title="Reset link error" subtitle="Unable to proceed with password reset.">
+        <div className="glass flex flex-col items-center p-8 text-center">
+          <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-red-500/30 bg-red-500/10">
+            <AlertCircle className="h-7 w-7 text-red-400" />
+          </span>
+          <h2 className="font-serif text-2xl text-white">Link expired or invalid</h2>
+          <p className="mt-3 text-sm text-slate-300">{linkError}</p>
+          <div className="mt-6 flex flex-col gap-3 w-full">
+            <Link to="/forgot-password" className="btn-primary block w-full text-center">
+              Request new reset link
+            </Link>
+            <Link to="/sign-in" className="btn-secondary block w-full text-center">
+              Back to sign in
+            </Link>
+          </div>
+        </div>
+      </AuthLayout>
+    );
+  }
+
+  if (!user && !done) {
+    return (
+      <AuthLayout title="Session required" subtitle="No active recovery session was detected.">
+        <div className="glass flex flex-col items-center p-8 text-center">
+          <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-champagne/30 bg-emerald-deep/60">
+            <MailCheck className="h-7 w-7 text-champagne" strokeWidth={1.5} />
+          </span>
+          <h2 className="font-serif text-2xl text-white">Reset link needed</h2>
+          <p className="mt-3 text-sm text-slate-300">
+            To choose a new password, please use the link delivered to your email address, or request a new one below.
+          </p>
+          <div className="mt-6 flex flex-col gap-3 w-full">
+            <Link to="/forgot-password" className="btn-primary block w-full text-center">
+              Request reset link
+            </Link>
+            <Link to="/sign-in" className="btn-secondary block w-full text-center">
+              Back to sign in
+            </Link>
+          </div>
+        </div>
+      </AuthLayout>
+    );
+  }
+
   return (
     <AuthLayout
       title="Choose a new password"
-      subtitle="Use at least 6 characters."
+      subtitle="Use at least 6 characters for your jewellery studio."
       footer={
         <Link to="/dashboard" className="font-medium text-champagne transition-colors hover:text-champagne-light">
           Continue to dashboard
@@ -115,9 +253,19 @@ export function ResetPasswordPage() {
       }
     >
       {done ? (
-        <div className="glass p-8 text-center">
-          <h2 className="font-serif text-2xl">Password updated</h2>
-          <p className="mt-2 text-sm text-slate-400">Your new password is saved. You are signed in.</p>
+        <div className="glass flex flex-col items-center p-8 text-center">
+          <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-champagne/30 bg-emerald-deep/60">
+            <CheckCircle2 className="h-7 w-7 text-champagne" strokeWidth={1.5} />
+          </span>
+          <h2 className="font-serif text-2xl text-white">Password updated</h2>
+          <p className="mt-2 text-sm text-slate-300">Your new password is saved. You are signed in to JEWELS AI.</p>
+          <button
+            type="button"
+            onClick={() => navigate('/dashboard', { replace: true })}
+            className="btn-primary mt-6 w-full"
+          >
+            Go to dashboard
+          </button>
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-5">
@@ -132,6 +280,7 @@ export function ResetPasswordPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="input-base"
+              placeholder="At least 6 characters"
             />
           </div>
           <div>
@@ -145,13 +294,14 @@ export function ResetPasswordPage() {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               className="input-base"
+              placeholder="Repeat your new password"
             />
           </div>
 
           {error && (
-            <p role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            <div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
               {error}
-            </p>
+            </div>
           )}
 
           <button type="submit" disabled={submitting} className="btn-primary w-full">

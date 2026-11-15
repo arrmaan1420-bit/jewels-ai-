@@ -1,2 +1,8 @@
 [functions.generate-model-image]
 verify_jwt = true
+
+[functions.generate-ad-creative]
+verify_jwt = true
+
+[functions.instagram-publish]
+verify_jwt = true

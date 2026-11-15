@@ -7,8 +7,8 @@ export function RequireAuth() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500/20 border-t-emerald-400" />
+      <div className="flex min-h-screen items-center justify-center bg-onyx">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500/20 border-t-champagne" />
       </div>
     );
   }
@@ -23,8 +23,17 @@ export function RequireAuth() {
 export function RedirectIfAuthenticated() {
   const { user, loading } = useAuth();
 
-  if (loading) return null;
-  if (user) return <Navigate to="/dashboard" replace />;
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-onyx">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500/20 border-t-champagne" />
+      </div>
+    );
+  }
+
+  if (user) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   return <Outlet />;
 }
