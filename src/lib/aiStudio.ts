@@ -1,4 +1,4 @@
-import { generateImagenImage, getGoogleAiKey } from '@/lib/googleAi';
+import { generateImagenImage, getGoogleAiKey, hasGoogleAiKey } from '@/lib/googleAi';
 import { supabase } from '@/lib/supabase';
 import type { AiModelGeneration, ModelGenerationFormValues } from '@/types/ai';
 

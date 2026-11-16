@@ -1,4 +1,4 @@
-import { generateImagenImage, generateLuxuryCaption, getGoogleAiKey } from '@/lib/googleAi';
+import { generateImagenImage, generateLuxuryCaption, getGoogleAiKey, hasGoogleAiKey } from '@/lib/googleAi';
 import { supabase } from '@/lib/supabase';
 import type { AdGenerationFormValues, AiAdCreative } from '@/types/ai';
 
