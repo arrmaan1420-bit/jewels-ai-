@@ -5,6 +5,7 @@ import {
   CheckCheck,
   Copy,
   Download,
+  ExternalLink,
   FolderPlus,
   History,
   Image as ImageIcon,
@@ -17,7 +18,7 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { GoogleAiKeyModal } from '@/components/GoogleAiKeyModal';
 import { Modal } from '@/components/Modal';
@@ -33,7 +34,7 @@ import {
   updateAdCaption,
 } from '@/lib/adGenerator';
 import { fetchCampaigns } from '@/lib/campaigns';
-import { hasGoogleAiKey } from '@/lib/googleAi';
+import { clearGoogleAiKey, hasGoogleAiKey, setGoogleAiKey } from '@/lib/googleAi';
 import { fetchProducts } from '@/lib/products';
 import type { AdGenerationFormValues, AiAdCreative } from '@/types/ai';
 import type { Campaign } from '@/types/marketing';
@@ -75,6 +76,10 @@ export function AiAdGeneratorPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // URL Search Params (e.g. ?product=id)
+  const [searchParams] = useSearchParams();
+  const urlProductId = searchParams.get('product');
+
   // Form values
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [adStyle, setAdStyle] = useState('luxuryEditorial');
@@ -106,6 +111,26 @@ export function AiAdGeneratorPage() {
   const [deletingAd, setDeletingAd] = useState<AiAdCreative | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [keyModalOpen, setKeyModalOpen] = useState(false);
+  const [hasKey, setHasKey] = useState(hasGoogleAiKey());
+  const [inlineKey, setInlineKey] = useState('');
+
+  const handleSaveInlineKey = () => {
+    const clean = inlineKey.trim();
+    if (!clean) {
+      notify('Please enter a valid Google AI Studio API key.', 'error');
+      return;
+    }
+    setGoogleAiKey(clean);
+    setHasKey(true);
+    setInlineKey('');
+    notify('Google AI Studio connected! You can now generate luxury creatives.');
+  };
+
+  const handleRemoveKey = () => {
+    clearGoogleAiKey();
+    setHasKey(false);
+    notify('Google AI Studio key removed.');
+  };
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -119,21 +144,36 @@ export function AiAdGeneratorPage() {
       setAds(adList);
       setCampaigns(campList);
 
-      if (prods.length > 0 && !selectedProduct) {
-        setSelectedProduct(prods[0]);
+      if (prods.length > 0) {
+        if (urlProductId) {
+          const found = prods.find((p) => p.id === urlProductId);
+          if (found) {
+            setSelectedProduct(found);
+            return;
+          }
+        }
+        if (!selectedProduct) {
+          setSelectedProduct(prods[0]);
+        }
       }
     } catch (err) {
       notify(err instanceof Error ? err.message : 'Could not load ad generator data.', 'error');
     } finally {
       setLoading(false);
     }
-  }, [notify, selectedProduct]);
+  }, [notify, selectedProduct, urlProductId]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
   const handleGenerate = async () => {
+    if (!hasGoogleAiKey()) {
+      setKeyModalOpen(true);
+      notify('Please enter your Google AI Studio API key to generate creatives.', 'error');
+      return;
+    }
+
     if (!selectedProduct) {
       notify('Please select a jewellery product to advertise.', 'error');
       return;
@@ -254,7 +294,7 @@ export function AiAdGeneratorPage() {
               className="btn-secondary text-xs inline-flex items-center gap-1.5"
             >
               <KeyRound className="h-3.5 w-3.5 text-champagne" />
-              {hasGoogleAiKey() ? 'Google AI Connected' : 'Connect Google AI'}
+              {hasKey ? 'Google AI Connected' : 'Connect Google AI'}
             </button>
             <Link to="/products?new=1" className="btn-secondary">
               <Plus className="h-4 w-4" /> Upload piece
@@ -262,6 +302,87 @@ export function AiAdGeneratorPage() {
           </div>
         }
       />
+
+      {/* Google AI Studio Quick Connect Banner */}
+      {!hasKey ? (
+        <div className="rounded-2xl border border-champagne/40 bg-gradient-to-r from-[#081812] via-[#050f0b] to-[#081812] p-5 shadow-[0_10px_35px_rgba(0,0,0,0.6)]">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-champagne/20 text-champagne">
+                  <Sparkles className="h-4 w-4" />
+                </span>
+                <h4 className="font-serif text-lg font-medium text-white">
+                  Connect Google AI Studio <span className="text-xs text-champagne font-sans font-normal">(Free Direct Generation)</span>
+                </h4>
+              </div>
+              <p className="max-w-2xl text-xs leading-relaxed text-slate-300">
+                Generate editorial jewellery advertisements with <strong className="text-champagne">Imagen 3</strong> and luxury captions with <strong className="text-champagne">Gemini 1.5 Flash</strong>. Enter your free API key once below to generate ads immediately.
+              </p>
+            </div>
+            <a
+              href="https://aistudio.google.com/app/apikey"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-champagne hover:underline"
+            >
+              Get Free Key <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          </div>
+
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <input
+              type="password"
+              value={inlineKey}
+              onChange={(e) => setInlineKey(e.target.value)}
+              placeholder="Paste Google AI Studio API Key (starts with AIzaSy...)"
+              className="input-base flex-1 py-2.5 text-xs font-mono bg-black/70 border-white/20 focus:border-champagne"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleSaveInlineKey();
+                }
+              }}
+            />
+            <button
+              type="button"
+              onClick={handleSaveInlineKey}
+              className="btn-primary py-2.5 px-5 text-xs font-semibold whitespace-nowrap inline-flex items-center justify-center gap-2 shadow-glow"
+            >
+              <KeyRound className="h-3.5 w-3.5" />
+              Save &amp; Connect Key
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-950/20 px-4 py-2.5 shadow-sm">
+          <div className="flex items-center gap-2.5 text-xs text-emerald-300">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
+            </span>
+            <span className="font-medium text-white">Google AI Studio Connected</span>
+            <span className="text-slate-400 hidden sm:inline">— Imagen 3 &amp; Gemini 1.5 Flash active</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setKeyModalOpen(true)}
+              className="text-xs text-champagne hover:underline font-medium"
+            >
+              Change Key
+            </button>
+            <span className="text-slate-600">|</span>
+            <button
+              type="button"
+              onClick={handleRemoveKey}
+              className="text-xs text-slate-400 hover:text-red-400"
+            >
+              Disconnect
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-8 lg:grid-cols-12">
         {/* Left Generation Controls */}
@@ -650,7 +771,10 @@ export function AiAdGeneratorPage() {
       <GoogleAiKeyModal
         open={keyModalOpen}
         onClose={() => setKeyModalOpen(false)}
-        onSaved={handleGenerate}
+        onSaved={() => {
+          setHasKey(true);
+          handleGenerate();
+        }}
       />
 
       {/* Save to Campaign Modal */}

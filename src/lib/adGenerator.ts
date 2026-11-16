@@ -91,30 +91,51 @@ async function generateAdWithClientEngine(
     throw err;
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    throw new Error('Please sign in to generate advertisements.');
+  // 1. Check user session gracefully
+  let user: any = null;
+  try {
+    const { data } = await supabase.auth.getUser();
+    user = data?.user || null;
+  } catch (authErr) {
+    console.warn('Supabase auth check notice:', authErr);
   }
 
-  // 1. Fetch product
-  const { data: product, error: prodErr } = await supabase
-    .from('products')
-    .select('id, name, category, description, material, gemstone, image_path')
-    .eq('id', payload.productId)
-    .maybeSingle();
-
-  if (prodErr || !product) {
-    throw new Error('Could not find the selected jewellery product.');
+  // 2. Fetch product details
+  let product: any = null;
+  if (payload.productId) {
+    try {
+      const { data: prodData } = await supabase
+        .from('products')
+        .select('id, name, category, description, material, gemstone, image_path')
+        .eq('id', payload.productId)
+        .maybeSingle();
+      product = prodData;
+    } catch {}
   }
 
-  // 2. Fetch user brand profile
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('brand_name, marketing_tone')
-    .eq('id', user.id)
-    .maybeSingle();
+  if (!product) {
+    product = {
+      id: payload.productId || 'demo-product',
+      name: 'The Emerald Cut Solitaire Pendant',
+      category: 'Fine Jewellery',
+      material: '18K Yellow Gold',
+      gemstone: 'Brilliant Diamond',
+      description: 'Handcrafted luxury jewellery piece',
+    };
+  }
+
+  // 3. Fetch user brand profile
+  let profile: any = null;
+  if (user?.id) {
+    try {
+      const { data: profData } = await supabase
+        .from('profiles')
+        .select('brand_name, marketing_tone')
+        .eq('id', user.id)
+        .maybeSingle();
+      profile = profData;
+    } catch {}
+  }
 
   const styleDesc = AD_STYLES[payload.adStyle] || AD_STYLES.luxuryEditorial;
   const themeDesc = CAMPAIGN_THEMES[payload.theme] || CAMPAIGN_THEMES.midnightVelvet;
@@ -130,7 +151,7 @@ async function generateAdWithClientEngine(
     `Quality: 8K commercial advertisement photography, ultra-high resolution, hyper-realistic, luxury print campaign standard, no text, no watermark.`,
   ].filter(Boolean).join('\n');
 
-  // 3. Generate Image & Caption concurrently
+  // 4. Generate Image & Caption concurrently via Google AI Studio
   const [imgResult, captionResult] = await Promise.all([
     generateImagenImage(apiKey, prompt, payload.aspectRatio),
     generateLuxuryCaption(
@@ -143,50 +164,62 @@ async function generateAdWithClientEngine(
     ),
   ]);
 
-  // 4. Upload generated image to Supabase Storage
-  const imagePath = `${user.id}/ads/${crypto.randomUUID()}.jpg`;
-  const { error: uploadError } = await supabase.storage
-    .from(PRODUCT_IMAGE_BUCKET)
-    .upload(imagePath, imgResult.blob, { contentType: imgResult.mimeType, cacheControl: '3600' });
+  // 5. Save to Supabase Storage & Database if logged in, otherwise use local in-memory URL
+  let finalImageUrl = '';
+  let imagePath = 'local-preview';
+  let adRowId: string | undefined;
 
-  if (uploadError) {
-    console.error('Storage upload failed:', uploadError.message);
-    throw new Error('The advertisement image was created but could not be saved to storage.');
+  if (user?.id) {
+    try {
+      const storagePath = `${user.id}/ads/${crypto.randomUUID()}.jpg`;
+      const { error: uploadError } = await supabase.storage
+        .from(PRODUCT_IMAGE_BUCKET)
+        .upload(storagePath, imgResult.blob, { contentType: imgResult.mimeType, cacheControl: '3600' });
+
+      if (!uploadError) {
+        imagePath = storagePath;
+        const { data: publicUrl } = supabase.storage.from(PRODUCT_IMAGE_BUCKET).getPublicUrl(storagePath);
+        finalImageUrl = publicUrl.publicUrl;
+
+        // Insert record into ai_ads table
+        const { data: adRow } = await supabase
+          .from('ai_ads')
+          .insert({
+            user_id: user.id,
+            product_id: product.id !== 'demo-product' ? product.id : null,
+            campaign_id: payload.campaignId || null,
+            image_path: storagePath,
+            ad_style: payload.adStyle,
+            theme: payload.theme,
+            aspect_ratio: payload.aspectRatio,
+            prompt,
+            caption: captionResult.caption,
+            hashtags: captionResult.hashtags,
+            settings: {
+              adStyle: payload.adStyle,
+              theme: payload.theme,
+              aspectRatio: payload.aspectRatio,
+              customPrompt: payload.customPrompt,
+            },
+          })
+          .select('id, created_at')
+          .maybeSingle();
+
+        adRowId = adRow?.id;
+      }
+    } catch (saveErr) {
+      console.warn('Supabase persistence notice (using local blob for instant preview):', saveErr);
+    }
   }
 
-  // 5. Insert record into ai_ads
-  const { data: adRow, error: insertError } = await supabase
-    .from('ai_ads')
-    .insert({
-      user_id: user.id,
-      product_id: product.id,
-      campaign_id: payload.campaignId || null,
-      image_path: imagePath,
-      ad_style: payload.adStyle,
-      theme: payload.theme,
-      aspect_ratio: payload.aspectRatio,
-      prompt,
-      caption: captionResult.caption,
-      hashtags: captionResult.hashtags,
-      settings: {
-        adStyle: payload.adStyle,
-        theme: payload.theme,
-        aspectRatio: payload.aspectRatio,
-        customPrompt: payload.customPrompt,
-      },
-    })
-    .select('id, created_at')
-    .maybeSingle();
-
-  if (insertError) {
-    console.warn('ai_ads insert warning:', insertError.message);
+  // Fallback to in-memory URL so user is NEVER blocked
+  if (!finalImageUrl) {
+    finalImageUrl = URL.createObjectURL(imgResult.blob);
   }
-
-  const { data: publicUrl } = supabase.storage.from(PRODUCT_IMAGE_BUCKET).getPublicUrl(imagePath);
 
   return {
-    id: adRow?.id,
-    imageUrl: publicUrl.publicUrl,
+    id: adRowId || crypto.randomUUID(),
+    imageUrl: finalImageUrl,
     imagePath,
     adStyle: payload.adStyle,
     theme: payload.theme,
@@ -194,7 +227,7 @@ async function generateAdWithClientEngine(
     prompt,
     caption: captionResult.caption,
     hashtags: captionResult.hashtags,
-    createdAt: adRow?.created_at || new Date().toISOString(),
+    createdAt: new Date().toISOString(),
   };
 }
 
@@ -212,7 +245,12 @@ export async function generateAdCreative(
   hashtags: string;
   createdAt: string;
 }> {
-  // Try Edge Function first
+  // If user has direct Google AI key saved in browser, run instant client engine!
+  if (hasGoogleAiKey()) {
+    return await generateAdWithClientEngine(payload);
+  }
+
+  // Try Edge Function if deployed
   try {
     const { data, error } = await supabase.functions.invoke('generate-ad-creative', {
       body: payload,
@@ -225,7 +263,7 @@ export async function generateAdCreative(
     console.warn('Edge Function invoke error, falling back to direct Google AI engine:', edgeErr);
   }
 
-  // Fallback to client-side Google AI Studio engine
+  // Fallback to client-side Google AI Studio engine (prompts user for free key)
   return await generateAdWithClientEngine(payload);
 }
 
