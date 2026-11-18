@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Sparkles } from 'lucide-react';
 import { ImageDropzone } from '@/components/products/ImageDropzone';
 import { Modal } from '@/components/Modal';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
+import { analyzeJewelleryVisuals, hasGoogleAiKey } from '@/lib/googleAi';
 import { createProduct, updateProduct, uploadProductImage, removeProductImage } from '@/lib/products';
 import { PRODUCT_CATEGORIES, type Product, type ProductFormValues } from '@/types/product';
 
@@ -47,6 +48,9 @@ export function ProductFormDialog({ open, product, onClose, onSaved }: ProductFo
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzedBadge, setAnalyzedBadge] = useState<string | null>(null);
+
   const [prevOpen, setPrevOpen] = useState(open);
   if (prevOpen !== open) {
     setPrevOpen(open);
@@ -55,8 +59,35 @@ export function ProductFormDialog({ open, product, onClose, onSaved }: ProductFo
       setFiles([]);
       setProgress(null);
       setError(null);
+      setAnalyzedBadge(null);
     }
   }
+
+  const handleFilesChange = async (newFiles: File[]) => {
+    setFiles(newFiles);
+    if (!isEdit && newFiles.length > 0) {
+      const firstFile = newFiles[0];
+      setAnalyzing(true);
+      setAnalyzedBadge(null);
+      try {
+        const analysis = await analyzeJewelleryVisuals(firstFile);
+        setValues((current) => ({
+          ...current,
+          name: current.name || analysis.suggestedName,
+          category: (PRODUCT_CATEGORIES.includes(analysis.category as any) ? analysis.category : current.category) as any,
+          material: current.material || analysis.material,
+          gemstone: current.gemstone || analysis.gemstone,
+          description: current.description || `${analysis.forensicDescription} Crafted in ${analysis.material}. Aesthetic: ${analysis.designStyle}.`,
+        }));
+        setAnalyzedBadge(`AI Vision Detected: ${analysis.suggestedName} (${analysis.material})`);
+        notify('AI Vision analyzed your jewellery and prefilled specifications.');
+      } catch (err) {
+        console.warn('AI analysis notice:', err);
+      } finally {
+        setAnalyzing(false);
+      }
+    }
+  };
 
   const update = <K extends keyof ProductFormValues>(key: K, value: ProductFormValues[K]) => {
     setValues((current) => ({ ...current, [key]: value }));
@@ -124,9 +155,21 @@ export function ProductFormDialog({ open, product, onClose, onSaved }: ProductFo
         {!isEdit && (
           <div>
             <span className="label-text">Product photographs</span>
-            <ImageDropzone files={files} onChange={setFiles} onError={setError} disabled={submitting} />
+            <ImageDropzone files={files} onChange={handleFilesChange} onError={setError} disabled={submitting || analyzing} />
+            {analyzing && (
+              <div className="mt-2.5 flex items-center gap-2 rounded-lg border border-champagne/30 bg-champagne/10 px-3 py-2 text-xs text-champagne">
+                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                <span>AI Vision is examining your jewellery piece to extract specifications...</span>
+              </div>
+            )}
+            {analyzedBadge && !analyzing && (
+              <div className="mt-2.5 flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-950/20 px-3 py-2 text-xs text-emerald-300">
+                <Sparkles className="h-4 w-4 shrink-0 text-emerald-400" />
+                <span className="font-medium">{analyzedBadge}</span>
+              </div>
+            )}
             <p className="mt-2 text-xs text-slate-500">
-              Each photograph becomes its own product. Multiple photographs are numbered automatically.
+              Each photograph becomes its own product. AI Vision automatically extracts metal, gems, and style.
             </p>
           </div>
         )}

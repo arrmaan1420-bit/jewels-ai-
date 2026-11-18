@@ -32,7 +32,7 @@ import {
   linkGenerationToCampaign,
 } from '@/lib/aiStudio';
 import { fetchCampaigns } from '@/lib/campaigns';
-import { clearGoogleAiKey, hasGoogleAiKey, setGoogleAiKey } from '@/lib/googleAi';
+import { clearGoogleAiKey, hasGoogleAiKey, setGoogleAiKey, MODEL_ETHNICITIES } from '@/lib/googleAi';
 import { fetchProducts } from '@/lib/products';
 import type { AiModelGeneration, ModelGenerationFormValues } from '@/types/ai';
 import type { Campaign } from '@/types/marketing';
@@ -100,6 +100,7 @@ export function AiModelStudioPage() {
   // Form selections
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [gender, setGender] = useState<'female' | 'male'>('female');
+  const [modelEthnicity, setModelEthnicity] = useState('autoDiverse');
   const [style, setStyle] = useState('luxuryFashion');
   const [outfit, setOutfit] = useState('evening-gown');
   const [hairstyle, setHairstyle] = useState('sleek-bun');
@@ -213,6 +214,7 @@ export function AiModelStudioPage() {
 
     const values: ModelGenerationFormValues = {
       gender,
+      modelEthnicity,
       style,
       hairstyle,
       outfit,
@@ -486,6 +488,35 @@ export function AiModelStudioPage() {
                 >
                   <UserRound className="h-4 w-4 text-emerald-400" /> Male Model
                 </button>
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between">
+                <label className="label-text">Model Demographics & Facial Features</label>
+                <span className="text-[11px] text-champagne">Guarantees unique photorealistic faces</span>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {MODEL_ETHNICITIES.map((eth) => {
+                  const isChosen = modelEthnicity === eth.id;
+                  return (
+                    <button
+                      key={eth.id}
+                      type="button"
+                      onClick={() => setModelEthnicity(eth.id)}
+                      className={`rounded-xl border p-2.5 text-left transition-all ${
+                        isChosen
+                          ? 'border-champagne bg-champagne/10 shadow-sm'
+                          : 'border-white/10 bg-black/30 hover:border-white/20'
+                      }`}
+                    >
+                      <p className={`text-xs font-semibold ${isChosen ? 'text-champagne' : 'text-white'}`}>
+                        {eth.label}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-slate-400 line-clamp-1">{eth.desc}</p>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 

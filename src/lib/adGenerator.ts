@@ -137,26 +137,45 @@ async function generateAdWithClientEngine(
     } catch {}
   }
 
+  const isMacroMode = payload.creativeMode === 'macroStudio' || payload.adStyle === 'premiumProduct';
   const styleDesc = AD_STYLES[payload.adStyle] || AD_STYLES.luxuryEditorial;
   const themeDesc = CAMPAIGN_THEMES[payload.theme] || CAMPAIGN_THEMES.midnightVelvet;
 
+  // Dynamic visual style modifiers for non-repetitive commercial advertising
+  const styleNuance = isMacroMode
+    ? 'Pure macro fine jewellery commercial advertising photography. Centerpiece hero placement on flawless polished black obsidian mirror with crystalline double reflections. Extreme close-up gemstone and metal clarity, pristine studio craftsmanship, soft recessed luxury boutique spotlights. NO human figures, NO models, pure product hero perfection.'
+    : payload.adStyle === 'festiveIndian'
+    ? 'Regal Indian festive bridal campaign, warm golden diya candlelight, rich velvet tones, featuring an Indian royal bride with traditional kohl eyes and heirloom elegance.'
+    : payload.adStyle === 'weddingCampaign'
+    ? 'Dreamy bespoke wedding campaign, draped champagne silk, warm romantic golden hour sunset glow, elegant bridal poise.'
+    : 'High-fashion international magazine editorial, haute couture styling, dynamic high-contrast studio illumination, striking distinct facial bone structure, realistic skin texture.';
+
+  const forensicContext = payload.forensicDescription
+    ? `EXACT PRODUCT SPECIFICATIONS TO PRESERVE: ${payload.forensicDescription}`
+    : `Product: "${product.name}", fine ${product.category}. Crafted in ${product.material || 'precious metals'} adorned with ${product.gemstone || 'fine gems'}. Preserve exact silhouette, chain details, stones, and craftsmanship.`;
+
   const prompt = [
-    `A high-end luxury advertising photograph for fine jewellery.`,
-    `Product: "${product.name}", fine ${product.category}. Crafted in ${product.material || 'precious metals'} adorned with ${product.gemstone || 'fine gems'}.`,
-    `JEWELLERY HIGHLIGHT: Centerpiece hero shot of the exact piece. Preserve metal lustres, prong settings, gemstone brilliance, facets and delicate filigree.`,
-    `Creative Style: ${styleDesc}.`,
+    `A high-end luxury commercial advertising photograph for fine jewellery.`,
+    payload.customPrompt ? `Artistic Direction: ${payload.customPrompt}.` : '',
+    forensicContext,
+    `JEWELLERY HIGHLIGHT: Centerpiece hero shot of the exact piece. Preserve metal lustres, prong settings, gemstone brilliance, facets, chain structure, and delicate craftsmanship without altering design.`,
+    `Commercial Style: ${styleDesc}. ${styleNuance}`,
     `Campaign Theme: ${themeDesc}.`,
-    payload.customPrompt ? `Art Direction: ${payload.customPrompt}.` : '',
-    `Lighting: Dramatic cinematic studio lighting, crisp highlights, warm soft shadows, reflection on polished surfaces.`,
-    `Quality: 8K commercial advertisement photography, ultra-high resolution, hyper-realistic, luxury print campaign standard, no text, no watermark.`,
+    `Lighting & Optics: Dramatic cinematic studio strobe lighting, crisp highlights, warm soft contact shadows, reflection on polished surfaces, shot on 85mm f/1.4 lens.`,
+    `Quality & Realism: 8K commercial advertisement photography, ultra-high resolution, hyper-realistic, authentic human skin pores, no plastic skin, no CGI, luxury print campaign standard, no text, no watermark.`,
   ].filter(Boolean).join('\n');
 
   // 4. Generate Image & Caption concurrently via Google AI Studio
   const [imgResult, captionResult] = await Promise.all([
-    generateImagenImage(apiKey, prompt, payload.aspectRatio),
+    generateImagenImage(apiKey, prompt, payload.aspectRatio, {
+      modelEthnicityId: payload.modelEthnicity,
+    }),
     generateLuxuryCaption(
       apiKey,
-      product,
+      {
+        ...product,
+        forensicDescription: payload.forensicDescription,
+      },
       payload.adStyle,
       payload.theme,
       profile?.brand_name,

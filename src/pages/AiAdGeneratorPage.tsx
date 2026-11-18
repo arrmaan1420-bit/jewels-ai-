@@ -34,7 +34,14 @@ import {
   updateAdCaption,
 } from '@/lib/adGenerator';
 import { fetchCampaigns } from '@/lib/campaigns';
-import { clearGoogleAiKey, hasGoogleAiKey, setGoogleAiKey } from '@/lib/googleAi';
+import {
+  clearGoogleAiKey,
+  hasGoogleAiKey,
+  setGoogleAiKey,
+  MODEL_ETHNICITIES,
+  analyzeJewelleryVisuals,
+  type JewelleryVisualAnalysis,
+} from '@/lib/googleAi';
 import { fetchProducts } from '@/lib/products';
 import type { AdGenerationFormValues, AiAdCreative } from '@/types/ai';
 import type { Campaign } from '@/types/marketing';
@@ -82,11 +89,33 @@ export function AiAdGeneratorPage() {
 
   // Form values
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [creativeMode, setCreativeMode] = useState<'editorialModel' | 'macroStudio'>('editorialModel');
+  const [modelEthnicity, setModelEthnicity] = useState('autoDiverse');
+  const [forensicDescription, setForensicDescription] = useState('');
+  const [analyzingVision, setAnalyzingVision] = useState(false);
+  const [visionAnalysis, setVisionAnalysis] = useState<JewelleryVisualAnalysis | null>(null);
+
   const [adStyle, setAdStyle] = useState('luxuryEditorial');
   const [theme, setTheme] = useState('midnightVelvet');
   const [aspectRatio, setAspectRatio] = useState('1:1');
   const [customPrompt, setCustomPrompt] = useState('');
   const [campaignId, setCampaignId] = useState('');
+
+  const handleInspectProductWithVision = async (prod: Product) => {
+    if (!prod.image_path) return;
+    setAnalyzingVision(true);
+    try {
+      const imageUrl = getAdImageUrl(prod.image_path);
+      const analysis = await analyzeJewelleryVisuals(imageUrl);
+      setVisionAnalysis(analysis);
+      setForensicDescription(analysis.forensicDescription);
+      notify(`AI Vision inspected ${prod.name}: physical specifications locked.`);
+    } catch (err) {
+      console.warn('Vision inspection notice:', err);
+    } finally {
+      setAnalyzingVision(false);
+    }
+  };
 
   // Generation result
   const [generating, setGenerating] = useState(false);
@@ -187,6 +216,9 @@ export function AiAdGeneratorPage() {
       adStyle,
       theme,
       aspectRatio,
+      creativeMode,
+      modelEthnicity,
+      forensicDescription: forensicDescription || undefined,
       customPrompt: customPrompt.trim(),
       campaignId: campaignId || undefined,
     };
@@ -439,6 +471,41 @@ export function AiAdGeneratorPage() {
                 })}
               </div>
             )}
+
+            {selectedProduct && (
+              <div className="mt-5 rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-champagne" />
+                    <span className="text-xs font-semibold text-white">Product Preservation Engine</span>
+                    <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-medium text-emerald-300 border border-emerald-500/30">
+                      Vision-Lock Active
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleInspectProductWithVision(selectedProduct)}
+                    disabled={analyzingVision}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-champagne/40 bg-champagne/10 px-2.5 py-1 text-xs font-medium text-champagne hover:bg-champagne/20 transition-all"
+                  >
+                    {analyzingVision ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                    {forensicDescription ? 'Re-inspect Geometry' : 'Extract Forensic Geometry'}
+                  </button>
+                </div>
+                <p className="mt-2 text-xs text-slate-300 leading-relaxed">
+                  {forensicDescription ? (
+                    <span>
+                      <strong className="text-champagne font-medium">Locked Blueprint: </strong>
+                      {forensicDescription}
+                    </span>
+                  ) : (
+                    <span className="text-slate-400">
+                      Selected: <strong className="text-white">{selectedProduct.name}</strong> ({selectedProduct.category}) — {selectedProduct.material || '18K Gold'}, {selectedProduct.gemstone || 'Fine Gems'}. Click above to lock exact physical geometry with Gemini Vision so the AI maintains your genuine piece.
+                    </span>
+                  )}
+                </p>
+              </div>
+            )}
           </section>
 
           {/* Step 2: Advertisement Style & Theme */}
@@ -447,6 +514,84 @@ export function AiAdGeneratorPage() {
               <span className="text-xs font-semibold uppercase tracking-wider text-champagne">Step 2</span>
               <span className="text-xs text-slate-400">Campaign Art Direction</span>
             </div>
+
+            <div>
+              <label className="label-text">Creative Production Mode</label>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreativeMode('editorialModel');
+                    if (adStyle === 'premiumProduct') setAdStyle('luxuryEditorial');
+                  }}
+                  className={`rounded-xl border p-3.5 text-left transition-all ${
+                    creativeMode === 'editorialModel'
+                      ? 'border-champagne bg-champagne/10 shadow-sm'
+                      : 'border-white/10 bg-black/30 hover:border-white/20'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-white">Fashion Model Campaign</p>
+                    {creativeMode === 'editorialModel' && <span className="h-2 w-2 rounded-full bg-champagne"></span>}
+                  </div>
+                  <p className="mt-1 text-xs text-slate-400">
+                    High-fashion editorial model wearing your piece with vision-conditioned anatomical precision.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreativeMode('macroStudio');
+                    setAdStyle('premiumProduct');
+                  }}
+                  className={`rounded-xl border p-3.5 text-left transition-all ${
+                    creativeMode === 'macroStudio'
+                      ? 'border-emerald-500/60 bg-emerald-950/30 shadow-sm'
+                      : 'border-white/10 bg-black/30 hover:border-white/20'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-white">Macro Studio Masterpiece</p>
+                    {creativeMode === 'macroStudio' && <span className="h-2 w-2 rounded-full bg-emerald-400"></span>}
+                  </div>
+                  <p className="mt-1 text-xs text-slate-400">
+                    100% Guaranteed pure piece preservation. Obsidian mirror reflections, spotlights, no model faces.
+                  </p>
+                </button>
+              </div>
+            </div>
+
+            {creativeMode === 'editorialModel' && (
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className="label-text">Model Demographics & Facial Features</label>
+                  <span className="text-[11px] text-champagne">Guarantees unique photorealistic faces</span>
+                </div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {MODEL_ETHNICITIES.map((eth) => {
+                    const isChosen = modelEthnicity === eth.id;
+                    return (
+                      <button
+                        key={eth.id}
+                        type="button"
+                        onClick={() => setModelEthnicity(eth.id)}
+                        className={`rounded-xl border p-2.5 text-left transition-all ${
+                          isChosen
+                            ? 'border-champagne bg-champagne/10 shadow-sm'
+                            : 'border-white/10 bg-black/30 hover:border-white/20'
+                        }`}
+                      >
+                        <p className={`text-xs font-semibold ${isChosen ? 'text-champagne' : 'text-white'}`}>
+                          {eth.label}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-slate-400 line-clamp-1">{eth.desc}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="label-text">Advertisement Style</label>

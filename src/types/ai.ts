@@ -24,6 +24,8 @@ export interface AiAdCreative {
   prompt: string;
   caption: string;
   hashtags: string;
+  headline?: string;
+  cta?: string;
   settings: Record<string, unknown>;
   created_at: string;
   // joined product if available
@@ -39,6 +41,8 @@ export interface ModelGenerationFormValues {
   camera: string;
   background: string;
   aspectRatio: string;
+  modelEthnicity?: string;
+  creativeMode?: string;
   customPrompt?: string;
 }
 
@@ -49,4 +53,7 @@ export interface AdGenerationFormValues {
   aspectRatio: string;
   customPrompt: string;
   campaignId?: string;
+  modelEthnicity?: string;
+  creativeMode?: string;
+  forensicDescription?: string;
 }

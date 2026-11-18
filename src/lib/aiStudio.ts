@@ -1,4 +1,4 @@
-import { generateImagenImage, getGoogleAiKey, hasGoogleAiKey } from '@/lib/googleAi';
+import { generateImagenImage, getGoogleAiKey, hasGoogleAiKey, MODEL_ETHNICITIES } from '@/lib/googleAi';
 import { supabase } from '@/lib/supabase';
 import type { AiModelGeneration, ModelGenerationFormValues } from '@/types/ai';
 
@@ -115,18 +115,43 @@ async function generateModelWithClientEngine(
   }
 
   const genderWord = options.gender === 'female' ? 'female' : 'male';
+  
+  // Explicit demographic selection or diverse pool rotation
+  let modelFaceProfile = '';
+  if (options.modelEthnicity && options.modelEthnicity !== 'autoDiverse') {
+    const matched = MODEL_ETHNICITIES.find((m) => m.id === options.modelEthnicity);
+    if (matched?.promptSnippet) {
+      modelFaceProfile = matched.promptSnippet;
+    }
+  }
+  if (!modelFaceProfile) {
+    const DIVERSE_FACIAL_PROFILES = [
+      'South Asian royal beauty with warm radiant golden undertones, expressive dark eyes, natural regal facial structure',
+      'Haute couture international runway model with sculpted cheekbones, striking gaze, flawless natural skin texture',
+      'East Asian quiet-luxury editorial model with glowing porcelain skin, sleek refined elegance, minimalist poise',
+      'Middle Eastern royal elegance with captivating almond-shaped eyes, warm olive complexion, aristocratic features',
+      'Nordic high-fashion editorial model with soft luminous complexion, elegant natural bone structure, poised expression',
+      'Afro-chic luxury model with radiant deep bronze skin, majestic posture, striking high-fashion cheekbones',
+      'Mediterranean timeless elegance with sun-kissed natural complexion, warm captivating gaze, effortless sophistication',
+    ];
+    modelFaceProfile = DIVERSE_FACIAL_PROFILES[Math.floor(Math.random() * DIVERSE_FACIAL_PROFILES.length)];
+  }
+
   const prompt = [
     `A high-end luxury advertisement photograph of an elegant ${genderWord} model wearing authentic fine jewellery.`,
+    `Model individuality: Featuring a distinct ${modelFaceProfile}.`,
     `Product: "${product.name}", category ${product.category}. Crafted in ${product.material || 'fine metal'} with ${product.gemstone || 'gemstones'}.`,
-    `JEWELLERY HIGHLIGHT: Centerpiece hero shot of the exact piece worn naturally on the ${options.gender === 'female' ? 'woman' : 'man'}. Maintain gemstone brilliance, diamond facets, and metal craftsmanship.`,
+    `JEWELLERY HIGHLIGHT: Centerpiece hero shot of the exact piece worn naturally on the ${options.gender === 'female' ? 'woman' : 'man'}. Maintain exact gemstone brilliance, diamond facets, chain link structure, and metal craftsmanship without altering design.`,
     `Model styling: ${STYLES[options.style] || 'Luxury fashion'}. Hair: ${options.hairstyle}. Outfit: ${options.outfit}.`,
     `Pose & Camera: ${POSES[options.pose] || 'poised pose'}, captured with ${CAMERAS[options.camera] || '85mm lens'}.`,
     `Atmosphere & Studio: ${BACKGROUNDS[options.background] || 'Studio'}, illuminated with warm studio strobe lighting.`,
-    options.customPrompt ? `Additional creative direction: ${options.customPrompt}.` : '',
-    'Vogue / Harper’s Bazaar editorial photography, ultra-detailed 8K resolution, realistic skin texture, diamond sparkle, no watermark, no text.',
+    options.customPrompt ? `Artistic direction: ${options.customPrompt}.` : '',
+    'Vogue / Harper’s Bazaar editorial photography, ultra-detailed 8K resolution, realistic human skin micro-texture, visible skin pores, lifelike eyes, diamond sparkle, no plastic skin, no CGI, authentic commercial advertisement photography standard.',
   ].filter(Boolean).join('\n');
 
-  const imgResult = await generateImagenImage(apiKey, prompt, options.aspectRatio);
+  const imgResult = await generateImagenImage(apiKey, prompt, options.aspectRatio, {
+    modelEthnicityId: options.modelEthnicity,
+  });
 
   let finalImageUrl = '';
   let imagePath = 'local-preview';
