@@ -165,23 +165,26 @@ async function generateAdWithClientEngine(
     `Quality & Realism: 8K commercial advertisement photography, ultra-high resolution, hyper-realistic, authentic human skin pores, no plastic skin, no CGI, luxury print campaign standard, no text, no watermark.`,
   ].filter(Boolean).join('\n');
 
-  // 4. Generate Image & Caption concurrently via Google AI Studio
-  const [imgResult, captionResult] = await Promise.all([
-    generateImagenImage(apiKey, prompt, payload.aspectRatio, {
-      modelEthnicityId: payload.modelEthnicity,
-    }),
-    generateLuxuryCaption(
-      apiKey,
-      {
-        ...product,
-        forensicDescription: payload.forensicDescription,
-      },
-      payload.adStyle,
-      payload.theme,
-      profile?.brand_name,
-      profile?.marketing_tone
-    ),
-  ]);
+  // 4. Generate Image (or use authentic Try-On composite blob) & Caption concurrently
+  const imgPromise = payload.customImageBlob
+    ? Promise.resolve({ blob: payload.customImageBlob, mimeType: 'image/jpeg' })
+    : generateImagenImage(apiKey, prompt, payload.aspectRatio, {
+        modelEthnicityId: payload.modelEthnicity,
+      });
+
+  const captionPromise = generateLuxuryCaption(
+    apiKey,
+    {
+      ...product,
+      forensicDescription: payload.forensicDescription,
+    },
+    payload.adStyle,
+    payload.theme,
+    profile?.brand_name,
+    profile?.marketing_tone
+  );
+
+  const [imgResult, captionResult] = await Promise.all([imgPromise, captionPromise]);
 
   // 5. Save to Supabase Storage & Database if logged in, otherwise use local in-memory URL
   let finalImageUrl = '';

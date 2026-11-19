@@ -259,6 +259,46 @@ Respond ONLY with a valid JSON object matching this exact schema:
 }
 
 /**
+ * Remove any watermark stamped in the corner (e.g. from pollinations)
+ */
+async function scrubWatermark(blob: Blob): Promise<Blob> {
+  if (typeof window === 'undefined') return blob;
+  try {
+    const img = new Image();
+    const url = URL.createObjectURL(blob);
+    img.src = url;
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+    });
+    URL.revokeObjectURL(url);
+
+    const canvas = document.createElement('canvas');
+    const w = img.naturalWidth || img.width;
+    const h = img.naturalHeight || img.height;
+    canvas.width = w;
+    canvas.height = h;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return blob;
+
+    ctx.drawImage(img, 0, 0, w, h);
+
+    // Overwrite the bottom-right corner (where watermarks sit) with the texture directly above
+    const wmH = 36;
+    const wmW = 180;
+    const srcY = h - wmH - 10;
+    ctx.drawImage(canvas, w - wmW, srcY, wmW, wmH, w - wmW, h - wmH, wmW, wmH);
+
+    return new Promise((resolve) => {
+      canvas.toBlob((b) => resolve(b || blob), 'image/jpeg', 0.95);
+    });
+  } catch {
+    return blob;
+  }
+}
+
+/**
  * Photorealistic image generation engine with explicit Demographic selection
  */
 export async function generateImagenImage(
@@ -328,14 +368,14 @@ export async function generateImagenImage(
 
     // Build comprehensive, non-truncated prompt for hyper-realism & product preservation
     const fullArtPrompt = [
-      `ultra-realistic 8k commercial advertising photography for luxury fine jewellery`,
+      `vogue fashion editorial photograph, 35mm candid portrait of a real human fashion model for high jewellery advertising`,
       prompt.replace(/[\r\n]+/g, ', ').trim(),
       chosenDiversity ? `featuring a ${chosenDiversity}` : '',
-      `captured on Hasselblad H6D-100c medium format camera with 85mm f/1.4 portrait lens`,
-      `hyper-detailed authentic human skin texture, subtle natural pores, lifelike eyes and expression`,
-      `crystal clear jewellery diamond facets, lustrous metal reflections, prong perfection, crisp chain structure`,
-      `editorial Harper's Bazaar / Vogue magazine standard lighting, soft contact shadows, masterwork`,
-      `no plastic skin, no CGI, no cartoon, photorealistic commercial standard`,
+      `captured on Hasselblad H6D-100c medium format camera with 85mm f/1.4 prime lens`,
+      `authentic human skin micro-texture, visible skin pores, natural lifelike eyes, real hair strands`,
+      `crystal clear fine diamond facets, pristine metal reflections, authentic jewelry craftsmanship`,
+      `natural editorial magazine lighting, soft contact shadows, masterpiece photography`,
+      `raw photo, ultra photorealistic, no cartoon, no anime, no cgi, no 3d render, no doll, no plastic skin, no airbrushing, no video game art, no illustration, no watermark`,
     ]
       .filter(Boolean)
       .join(', ');
@@ -351,7 +391,8 @@ export async function generateImagenImage(
     if (fluxRes.ok) {
       const blob = await fluxRes.blob();
       if (blob && blob.size > 8000) {
-        return { blob, mimeType: 'image/jpeg' };
+        const cleanedBlob = await scrubWatermark(blob);
+        return { blob: cleanedBlob, mimeType: 'image/jpeg' };
       }
     }
   } catch (fluxErr) {

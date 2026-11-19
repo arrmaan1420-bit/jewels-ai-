@@ -14,7 +14,9 @@ import {
   Package,
   Plus,
   RefreshCw,
+  RotateCcw,
   Send,
+  Sliders,
   Sparkles,
   Trash2,
 } from 'lucide-react';
@@ -42,6 +44,13 @@ import {
   analyzeJewelleryVisuals,
   type JewelleryVisualAnalysis,
 } from '@/lib/googleAi';
+import {
+  EDITORIAL_MODEL_BASES,
+  renderAuthenticJewelleryAd,
+  DEFAULT_FITTING_CONFIG,
+  type EditorialModelBase,
+  type FittingConfig,
+} from '@/lib/jewelleryCompositor';
 import { fetchProducts } from '@/lib/products';
 import type { AdGenerationFormValues, AiAdCreative } from '@/types/ai';
 import type { Campaign } from '@/types/marketing';
@@ -89,7 +98,13 @@ export function AiAdGeneratorPage() {
 
   // Form values
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [creativeMode, setCreativeMode] = useState<'editorialModel' | 'macroStudio'>('editorialModel');
+  const [creativeMode, setCreativeMode] = useState<'authenticTryOn' | 'generativeAI'>('authenticTryOn');
+  const [selectedModelBase, setSelectedModelBase] = useState<EditorialModelBase>(EDITORIAL_MODEL_BASES[0]);
+  const [fittingConfig, setFittingConfig] = useState<FittingConfig>(DEFAULT_FITTING_CONFIG);
+  const [livePreviewUrl, setLivePreviewUrl] = useState<string | null>(null);
+  const [renderingLive, setRenderingLive] = useState(false);
+  const [showFittingSliders, setShowFittingSliders] = useState(true);
+
   const [modelEthnicity, setModelEthnicity] = useState('autoDiverse');
   const [forensicDescription, setForensicDescription] = useState('');
   const [analyzingVision, setAnalyzingVision] = useState(false);
@@ -100,6 +115,32 @@ export function AiAdGeneratorPage() {
   const [aspectRatio, setAspectRatio] = useState('1:1');
   const [customPrompt, setCustomPrompt] = useState('');
   const [campaignId, setCampaignId] = useState('');
+
+  // Live real-time Virtual Try-On renderer
+  useEffect(() => {
+    if (!selectedProduct || creativeMode !== 'authenticTryOn') return;
+
+    let active = true;
+    setRenderingLive(true);
+    const timer = setTimeout(async () => {
+      try {
+        const prodUrl = getAdImageUrl(selectedProduct.image_path);
+        const res = await renderAuthenticJewelleryAd(selectedModelBase, prodUrl, fittingConfig);
+        if (active) {
+          setLivePreviewUrl(res.dataUrl);
+        }
+      } catch (err) {
+        console.warn('Real-time Try-On render error:', err);
+      } finally {
+        if (active) setRenderingLive(false);
+      }
+    }, 120);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [selectedProduct, selectedModelBase, fittingConfig, creativeMode]);
 
   const handleInspectProductWithVision = async (prod: Product) => {
     if (!prod.image_path) return;
@@ -197,33 +238,42 @@ export function AiAdGeneratorPage() {
   }, [loadData]);
 
   const handleGenerate = async () => {
-    if (!hasGoogleAiKey()) {
-      setKeyModalOpen(true);
-      notify('Please enter your Google AI Studio API key to generate creatives.', 'error');
+    if (!selectedProduct) {
+      notify('Please select a jewellery product to advertise.', 'error');
       return;
     }
 
-    if (!selectedProduct) {
-      notify('Please select a jewellery product to advertise.', 'error');
+    if (creativeMode === 'generativeAI' && !hasGoogleAiKey()) {
+      setKeyModalOpen(true);
+      notify('Please enter your Google AI Studio API key for AI Generative mode.', 'error');
       return;
     }
 
     setGenerating(true);
     setCurrentResult(null);
 
-    const values: AdGenerationFormValues = {
-      productId: selectedProduct.id,
-      adStyle,
-      theme,
-      aspectRatio,
-      creativeMode,
-      modelEthnicity,
-      forensicDescription: forensicDescription || undefined,
-      customPrompt: customPrompt.trim(),
-      campaignId: campaignId || undefined,
-    };
-
     try {
+      let customBlob: Blob | undefined;
+
+      if (creativeMode === 'authenticTryOn') {
+        const prodUrl = getAdImageUrl(selectedProduct.image_path);
+        const rendered = await renderAuthenticJewelleryAd(selectedModelBase, prodUrl, fittingConfig);
+        customBlob = rendered.blob;
+      }
+
+      const values: AdGenerationFormValues = {
+        productId: selectedProduct.id,
+        adStyle: creativeMode === 'authenticTryOn' && selectedModelBase.category === 'macro' ? 'premiumProduct' : adStyle,
+        theme: creativeMode === 'authenticTryOn' ? selectedModelBase.id : theme,
+        aspectRatio,
+        creativeMode,
+        modelEthnicity: creativeMode === 'authenticTryOn' ? selectedModelBase.ethnicity : modelEthnicity,
+        forensicDescription: forensicDescription || undefined,
+        customPrompt: customPrompt.trim(),
+        campaignId: campaignId || undefined,
+        customImageBlob: customBlob,
+      };
+
       const res = await generateAdCreative(values);
       setCurrentResult({
         id: res.id,
@@ -235,7 +285,7 @@ export function AiAdGeneratorPage() {
       });
       setCaptionText(res.caption);
       setHashtagsText(res.hashtags);
-      notify('Advertisement creative generated with caption!');
+      notify('Authentic advertisement produced with custom luxury copy!');
       fetchAiAds().then(setAds);
     } catch (err: any) {
       if (err?.message?.includes('GOOGLE_AI_KEY_REQUIRED') || err?.code === 'GOOGLE_AI_KEY_REQUIRED') {
@@ -516,118 +566,247 @@ export function AiAdGeneratorPage() {
             </div>
 
             <div>
-              <label className="label-text">Creative Production Mode</label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="label-text mb-0">Production Method</label>
+                <span className="text-[11px] text-champagne font-medium">Recommended for Commerce</span>
+              </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setCreativeMode('editorialModel');
-                    if (adStyle === 'premiumProduct') setAdStyle('luxuryEditorial');
-                  }}
-                  className={`rounded-xl border p-3.5 text-left transition-all ${
-                    creativeMode === 'editorialModel'
-                      ? 'border-champagne bg-champagne/10 shadow-sm'
+                  onClick={() => setCreativeMode('authenticTryOn')}
+                  className={`rounded-xl border p-4 text-left transition-all ${
+                    creativeMode === 'authenticTryOn'
+                      ? 'border-champagne bg-champagne/15 shadow-glow'
                       : 'border-white/10 bg-black/30 hover:border-white/20'
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-white">Fashion Model Campaign</p>
-                    {creativeMode === 'editorialModel' && <span className="h-2 w-2 rounded-full bg-champagne"></span>}
+                    <p className="text-sm font-semibold text-white">💎 Authentic Model Try-On</p>
+                    {creativeMode === 'authenticTryOn' && <span className="h-2 w-2 rounded-full bg-champagne"></span>}
                   </div>
-                  <p className="mt-1 text-xs text-slate-400">
-                    High-fashion editorial model wearing your piece with vision-conditioned anatomical precision.
+                  <p className="mt-1 text-xs text-slate-300">
+                    <strong className="text-champagne font-medium">100% Genuine Piece: </strong>
+                    Drapes your exact uploaded jewellery onto real 8K fashion models with contact shadows &amp; real skin pores. Zero alteration.
                   </p>
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setCreativeMode('macroStudio');
-                    setAdStyle('premiumProduct');
-                  }}
-                  className={`rounded-xl border p-3.5 text-left transition-all ${
-                    creativeMode === 'macroStudio'
+                  onClick={() => setCreativeMode('generativeAI')}
+                  className={`rounded-xl border p-4 text-left transition-all ${
+                    creativeMode === 'generativeAI'
                       ? 'border-emerald-500/60 bg-emerald-950/30 shadow-sm'
                       : 'border-white/10 bg-black/30 hover:border-white/20'
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-white">Macro Studio Masterpiece</p>
-                    {creativeMode === 'macroStudio' && <span className="h-2 w-2 rounded-full bg-emerald-400"></span>}
+                    <p className="text-sm font-semibold text-white">🤖 AI Generative Diffusion</p>
+                    {creativeMode === 'generativeAI' && <span className="h-2 w-2 rounded-full bg-emerald-400"></span>}
                   </div>
                   <p className="mt-1 text-xs text-slate-400">
-                    100% Guaranteed pure piece preservation. Obsidian mirror reflections, spotlights, no model faces.
+                    Generates an editorial scene from artistic text prompts using diffusion models.
                   </p>
                 </button>
               </div>
             </div>
 
-            {creativeMode === 'editorialModel' && (
-              <div>
-                <div className="flex items-center justify-between">
-                  <label className="label-text">Model Demographics & Facial Features</label>
-                  <span className="text-[11px] text-champagne">Guarantees unique photorealistic faces</span>
+            {creativeMode === 'authenticTryOn' ? (
+              <div className="space-y-6">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="label-text mb-0">Select Real Fashion Model or Pedestal</label>
+                    <span className="text-[11px] text-emerald-300">8K Real Human Photography</span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 max-h-64 overflow-y-auto pr-1">
+                    {EDITORIAL_MODEL_BASES.map((base) => {
+                      const isChosen = selectedModelBase.id === base.id;
+                      return (
+                        <button
+                          key={base.id}
+                          type="button"
+                          onClick={() => setSelectedModelBase(base)}
+                          className={`flex items-center gap-3 rounded-xl border p-2 text-left transition-all ${
+                            isChosen
+                              ? 'border-champagne bg-champagne/15 shadow-sm'
+                              : 'border-white/10 bg-black/40 hover:border-white/20'
+                          }`}
+                        >
+                          <img
+                            src={base.imageUrl}
+                            alt={base.name}
+                            className="h-12 w-12 rounded-lg object-cover shrink-0 border border-white/10"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className={`text-xs font-semibold truncate ${isChosen ? 'text-champagne' : 'text-white'}`}>
+                              {base.name}
+                            </p>
+                            <p className="text-[10px] text-slate-400 line-clamp-1">{base.description}</p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {MODEL_ETHNICITIES.map((eth) => {
-                    const isChosen = modelEthnicity === eth.id;
-                    return (
+
+                {/* Interactive Fitting Studio Controls */}
+                <div className="rounded-xl border border-white/10 bg-black/40 p-4 space-y-4">
+                  <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                    <div className="flex items-center gap-2">
+                      <Sliders className="h-4 w-4 text-champagne" />
+                      <span className="text-xs font-semibold text-white">Interactive Fitting Controls</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setFittingConfig(DEFAULT_FITTING_CONFIG)}
+                      className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-champagne"
+                    >
+                      <RotateCcw className="h-3 w-3" /> Reset
+                    </button>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2 text-xs">
+                    <div>
+                      <div className="flex justify-between text-slate-400 mb-1">
+                        <span>📏 Size / Scale</span>
+                        <span className="text-white font-medium">{fittingConfig.scale.toFixed(2)}x</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.5"
+                        max="1.8"
+                        step="0.05"
+                        value={fittingConfig.scale}
+                        onChange={(e) => setFittingConfig((prev) => ({ ...prev, scale: parseFloat(e.target.value) }))}
+                        className="w-full accent-champagne"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between text-slate-400 mb-1">
+                        <span>↕️ Neckline Height</span>
+                        <span className="text-white font-medium">{fittingConfig.offsetY}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="-120"
+                        max="120"
+                        step="5"
+                        value={fittingConfig.offsetY}
+                        onChange={(e) => setFittingConfig((prev) => ({ ...prev, offsetY: parseInt(e.target.value, 10) }))}
+                        className="w-full accent-champagne"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between text-slate-400 mb-1">
+                        <span>🪄 Background Cutout</span>
+                        <span className="text-white font-medium">{fittingConfig.cutoutSensitivity}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="15"
+                        max="80"
+                        step="2"
+                        value={fittingConfig.cutoutSensitivity}
+                        onChange={(e) => setFittingConfig((prev) => ({ ...prev, cutoutSensitivity: parseInt(e.target.value, 10) }))}
+                        className="w-full accent-emerald-400"
+                      />
+                      <span className="text-[10px] text-slate-500">Dissolves ceramic dish or white background</span>
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between text-slate-400 mb-1">
+                        <span>☀️ Studio Lighting Warmth</span>
+                        <span className="text-white font-medium">{fittingConfig.warmth}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="-15"
+                        max="15"
+                        step="1"
+                        value={fittingConfig.warmth}
+                        onChange={(e) => setFittingConfig((prev) => ({ ...prev, warmth: parseInt(e.target.value, 10) }))}
+                        className="w-full accent-champagne"
+                      />
+                      <span className="text-[10px] text-slate-500">Matches warm golden or platinum tones</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <label className="label-text">Model Demographics &amp; Facial Features</label>
+                    <span className="text-[11px] text-champagne">Guarantees unique photorealistic faces</span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {MODEL_ETHNICITIES.map((eth) => {
+                      const isChosen = modelEthnicity === eth.id;
+                      return (
+                        <button
+                          key={eth.id}
+                          type="button"
+                          onClick={() => setModelEthnicity(eth.id)}
+                          className={`rounded-xl border p-2.5 text-left transition-all ${
+                            isChosen
+                              ? 'border-champagne bg-champagne/10 shadow-sm'
+                              : 'border-white/10 bg-black/30 hover:border-white/20'
+                          }`}
+                        >
+                          <p className={`text-xs font-semibold ${isChosen ? 'text-champagne' : 'text-white'}`}>
+                            {eth.label}
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-slate-400 line-clamp-1">{eth.desc}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="label-text">Advertisement Style</label>
+                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                    {AD_STYLES.map((s) => (
                       <button
-                        key={eth.id}
+                        key={s.id}
                         type="button"
-                        onClick={() => setModelEthnicity(eth.id)}
-                        className={`rounded-xl border p-2.5 text-left transition-all ${
-                          isChosen
-                            ? 'border-champagne bg-champagne/10 shadow-sm'
+                        onClick={() => setAdStyle(s.id)}
+                        className={`rounded-xl border p-3 text-left transition-all ${
+                          adStyle === s.id
+                            ? 'border-emerald-500/60 bg-emerald-950/30 shadow-sm'
                             : 'border-white/10 bg-black/30 hover:border-white/20'
                         }`}
                       >
-                        <p className={`text-xs font-semibold ${isChosen ? 'text-champagne' : 'text-white'}`}>
-                          {eth.label}
-                        </p>
-                        <p className="mt-0.5 text-[11px] text-slate-400 line-clamp-1">{eth.desc}</p>
+                        <p className="text-sm font-medium text-white">{s.label}</p>
+                        <p className="mt-0.5 text-xs text-slate-400">{s.desc}</p>
                       </button>
-                    );
-                  })}
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="label-text">Campaign Theme</label>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {CAMPAIGN_THEMES.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setTheme(t.id)}
+                        className={`rounded-xl border p-2.5 text-left transition-all ${
+                          theme === t.id
+                            ? 'border-champagne bg-champagne/10 text-white'
+                            : 'border-white/10 bg-black/30 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <p className="text-xs font-semibold">{t.label}</p>
+                        <p className="mt-0.5 text-[10px] text-slate-500">{t.hint}</p>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
-
-            <div>
-              <label className="label-text">Advertisement Style</label>
-              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                {AD_STYLES.map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => setAdStyle(s.id)}
-                    className={`rounded-xl border p-3 text-left transition-all ${
-                      adStyle === s.id
-                        ? 'border-emerald-500/60 bg-emerald-950/30 shadow-sm'
-                        : 'border-white/10 bg-black/30 hover:border-white/20'
-                    }`}
-                  >
-                    <p className="text-sm font-medium text-white">{s.label}</p>
-                    <p className="mt-0.5 text-xs text-slate-400">{s.desc}</p>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="label-text">Campaign Theme</label>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {CAMPAIGN_THEMES.map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => setTheme(t.id)}
-                    className={`rounded-xl border p-2.5 text-left transition-all ${
-                      theme === t.id
-                        ? 'border-champagne bg-champagne/10 text-white'
-                        : 'border-white/10 bg-black/30 text-slate-400 hover:text-white'
-                    }`}
-                  >
                     <p className="text-xs font-semibold">{t.label}</p>
                     <p className="mt-0.5 text-[10px] text-slate-500">{t.hint}</p>
                   </button>
@@ -826,6 +1005,32 @@ export function AiAdGeneratorPage() {
                   >
                     <CalendarClock className="h-4 w-4 text-emerald-400" /> Plan in Content Calendar
                   </button>
+                </div>
+              </div>
+            ) : livePreviewUrl && creativeMode === 'authenticTryOn' ? (
+              <div className="space-y-4">
+                <div className="relative overflow-hidden rounded-2xl border border-champagne/40 bg-black shadow-glow">
+                  <img
+                    src={livePreviewUrl}
+                    alt="Live Fitting Preview"
+                    className="aspect-square w-full object-cover"
+                  />
+                  {renderingLive && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-[1px]">
+                      <Loader2 className="h-8 w-8 animate-spin text-champagne" />
+                    </div>
+                  )}
+                  <div className="absolute top-3 left-3 rounded-full border border-emerald-500/40 bg-black/80 px-3 py-1 backdrop-blur-md flex items-center gap-2">
+                    <span className="relative flex h-2 w-2">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
+                    </span>
+                    <span className="text-[11px] font-medium text-emerald-300">Live Fitting • 100% Genuine Piece</span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between text-xs text-slate-400 px-1">
+                  <span>Model: <strong className="text-white">{selectedModelBase.name}</strong></span>
+                  <span className="text-champagne font-medium">Click button on left to finalize</span>
                 </div>
               </div>
             ) : (

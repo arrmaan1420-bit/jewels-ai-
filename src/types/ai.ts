@@ -56,4 +56,6 @@ export interface AdGenerationFormValues {
   modelEthnicity?: string;
   creativeMode?: string;
   forensicDescription?: string;
+  customImageBlob?: Blob;
+  modelBaseId?: string;
 }
